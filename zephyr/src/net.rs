@@ -79,96 +79,111 @@ impl Socket {
 
     /// Binds the socket to a local address.
     ///
-    /// # Arguments
-    ///
-    /// * `addr` - Pointer to the socket address structure
-    /// * `addrlen` - Length of the address structure
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `addr` points to a valid socket address structure
-    /// of the appropriate type for the socket's address family, and that `addrlen`
-    /// correctly represents the size of that structure.
-    pub unsafe fn bind(
-        &self,
-        addr: *const raw::net_sockaddr,
-        addrlen: raw::net_socklen_t,
-    ) -> Result<()> {
-        let ret = raw::zr_bind(self.fd, addr as *const _, addrlen);
-        to_result_void(ret)
-    }
-
-    /// Binds the socket to an IPv4 address.
-    ///
-    /// This is a safe wrapper around `bind` for IPv4 addresses.
+    /// This follows the socket2 crate convention.
     ///
     /// # Arguments
     ///
-    /// * `addr` - The IPv4 socket address to bind to
+    /// * `addr` - The socket address to bind to
     ///
     /// # Examples
     ///
     /// ```ignore
-    /// use zephyr::net::{Socket, Domain, Type, SockaddrIn, INADDR_ANY};
+    /// use zephyr::net::{Socket, Domain, Type};
+    /// use core::net::{SocketAddr, SocketAddrV4, Ipv4Addr};
     ///
     /// let socket = Socket::new(Domain::IPV4, Type::DGRAM, None)?;
-    /// let addr = SockaddrIn::new(8888, INADDR_ANY);
-    /// socket.bind_v4(&addr)?;
+    /// let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 8888));
+    /// socket.bind(&addr)?;
     /// ```
-    pub fn bind_v4(&self, addr: &SockaddrIn) -> Result<()> {
-        unsafe { self.bind(addr.as_ptr(), SockaddrIn::len()) }
+    pub fn bind(&self, addr: &core::net::SocketAddr) -> Result<()> {
+        match addr {
+            core::net::SocketAddr::V4(addr_v4) => {
+                #[repr(C)]
+                struct sockaddr_in {
+                    sin_family: u16,
+                    sin_port: u16,
+                    sin_addr: u32,
+                    sin_zero: [u8; 8],
+                }
+                let sockaddr_in = sockaddr_in {
+                    sin_family: Domain::IPV4 as u16,
+                    sin_port: htons(addr_v4.port()),
+                    sin_addr: htonl(u32::from_be_bytes(addr_v4.ip().octets())),
+                    sin_zero: [0; 8],
+                };
+                unsafe {
+                    let ret = raw::zr_bind(
+                        self.fd,
+                        &sockaddr_in as *const _ as *const _,
+                        core::mem::size_of::<sockaddr_in>() as raw::net_socklen_t,
+                    );
+                    to_result_void(ret)
+                }
+            }
+            core::net::SocketAddr::V6(_) => {
+                // IPv6 is not yet supported
+                Err(crate::error::Error(raw::EAFNOSUPPORT))
+            }
+        }
     }
 
-    /// Receives data from a socket and stores the source address.
+    /// Receives data from a socket and returns the source address.
+    ///
+    /// This follows the socket2 crate convention.
     ///
     /// # Arguments
     ///
     /// * `buf` - Buffer to store the received data
-    /// * `flags` - Flags for the receive operation (typically 0)
-    /// * `src_addr` - Optional mutable reference to store the source address
     ///
     /// # Returns
     ///
-    /// Returns the number of bytes received on success.
+    /// Returns a tuple of (number of bytes received, source address).
     ///
     /// # Examples
     ///
     /// ```ignore
-    /// use zephyr::net::{Socket, Domain, Type, SockaddrIn};
+    /// use zephyr::net::{Socket, Domain, Type};
     ///
     /// let socket = Socket::new(Domain::IPV4, Type::DGRAM, None)?;
     /// let mut buffer = [0u8; 256];
-    /// let mut src_addr = SockaddrIn::new(0, 0);
-    /// let recv_len = socket.recvfrom(&mut buffer, 0, Some(&mut src_addr))?;
+    /// let (recv_len, src_addr) = socket.recv_from(&mut buffer)?;
     /// ```
-    pub fn recvfrom(
-        &self,
-        buf: &mut [u8],
-        flags: c_int,
-        src_addr: Option<&mut SockaddrIn>,
-    ) -> Result<usize> {
+    pub fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, core::net::SocketAddr)> {
+        #[repr(C)]
+        struct sockaddr_in {
+            sin_family: u16,
+            sin_port: u16,
+            sin_addr: u32,
+            sin_zero: [u8; 8],
+        }
+        let mut sockaddr_in = sockaddr_in {
+            sin_family: 0,
+            sin_port: 0,
+            sin_addr: 0,
+            sin_zero: [0; 8],
+        };
+        let mut addrlen = core::mem::size_of::<sockaddr_in>() as raw::net_socklen_t;
+
         unsafe {
-            let result = if let Some(addr) = src_addr {
-                let mut addrlen = SockaddrIn::len();
-                raw::zr_recvfrom(
-                    self.fd,
-                    buf.as_mut_ptr() as *mut c_void,
-                    buf.len(),
-                    flags,
-                    addr.as_mut_ptr(),
-                    &mut addrlen,
-                )
-            } else {
-                raw::zr_recvfrom(
-                    self.fd,
-                    buf.as_mut_ptr() as *mut c_void,
-                    buf.len(),
-                    flags,
-                    core::ptr::null_mut(),
-                    core::ptr::null_mut(),
-                )
-            };
-            to_result(result as c_int).map(|_| result as usize)
+            let result = raw::zr_recvfrom(
+                self.fd,
+                buf.as_mut_ptr() as *mut c_void,
+                buf.len(),
+                0, // flags = 0 (default behavior)
+                &mut sockaddr_in as *mut _ as *mut _,
+                &mut addrlen,
+            );
+
+            to_result(result as c_int).map(|_| {
+                // Convert sockaddr_in to core::net::SocketAddr
+                let port = u16::from_be(sockaddr_in.sin_port);
+                let addr_bytes = u32::from_be(sockaddr_in.sin_addr).to_be_bytes();
+                let ipv4_addr = core::net::Ipv4Addr::from(addr_bytes);
+                let socket_addr =
+                    core::net::SocketAddr::V4(core::net::SocketAddrV4::new(ipv4_addr, port));
+
+                (result as usize, socket_addr)
+            })
         }
     }
 
@@ -203,57 +218,3 @@ pub fn htonl(hostlong: u32) -> u32 {
     hostlong.to_be()
 }
 
-/// IPv4 socket address structure
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct SockaddrIn {
-    /// Address family (should be AF_INET)
-    pub sin_family: u16,
-    /// Port number in network byte order
-    pub sin_port: u16,
-    /// IPv4 address in network byte order
-    pub sin_addr: u32,
-    /// Padding to match C struct size
-    pub sin_zero: [u8; 8],
-}
-
-impl SockaddrIn {
-    /// Creates a new IPv4 socket address
-    ///
-    /// # Arguments
-    ///
-    /// * `port` - Port number in host byte order (will be converted to network byte order)
-    /// * `addr` - IPv4 address in host byte order (will be converted to network byte order)
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// use zephyr::net::{SockaddrIn, INADDR_ANY};
-    ///
-    /// // Bind to any address on port 8888
-    /// let addr = SockaddrIn::new(8888, INADDR_ANY);
-    /// ```
-    pub fn new(port: u16, addr: u32) -> Self {
-        Self {
-            sin_family: Domain::IPV4 as u16,
-            sin_port: htons(port),
-            sin_addr: htonl(addr),
-            sin_zero: [0; 8],
-        }
-    }
-
-    /// Returns a pointer to this structure suitable for passing to C functions
-    pub fn as_ptr(&self) -> *const raw::net_sockaddr {
-        self as *const Self as *const raw::net_sockaddr
-    }
-
-    /// Returns a mutable pointer to this structure suitable for passing to C functions
-    pub fn as_mut_ptr(&mut self) -> *mut raw::net_sockaddr {
-        self as *mut Self as *mut raw::net_sockaddr
-    }
-
-    /// Returns the size of this structure
-    pub fn len() -> raw::net_socklen_t {
-        core::mem::size_of::<Self>() as raw::net_socklen_t
-    }
-}
