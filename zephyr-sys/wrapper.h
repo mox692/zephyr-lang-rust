@@ -110,6 +110,11 @@ static inline int zr_bind(int sock, const struct sockaddr *addr, socklen_t addrl
 static inline int zr_close(int sock) {
 	return zsock_close(sock);
 }
+
+static inline ssize_t zr_recvfrom(int sock, void *buf, size_t max_len, int flags,
+				  struct sockaddr *src_addr, socklen_t *addrlen) {
+	return zsock_recvfrom(sock, buf, max_len, flags, src_addr, addrlen);
+}
 #endif
 
 /*

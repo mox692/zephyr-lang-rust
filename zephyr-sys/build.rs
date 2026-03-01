@@ -95,6 +95,7 @@ fn main() -> Result<()> {
         .allowlist_function("zr_socket")
         .allowlist_function("zr_bind")
         .allowlist_function("zr_close")
+        .allowlist_function("zr_recvfrom")
         .allowlist_function("socket")
         .allowlist_function("bind")
         .allowlist_function("listen")
