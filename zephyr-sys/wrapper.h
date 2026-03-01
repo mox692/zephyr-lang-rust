@@ -43,6 +43,7 @@ extern int errno;
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/drivers/flash.h>
 #include <zephyr/irq.h>
+#include <zephyr/net/socket.h>
 
 /*
  * bindgen will only output #defined constants that resolve to simple numbers.  These are some
@@ -82,6 +83,34 @@ ZR_GPIO(GPIO_INT_LEVEL_LOW);
 ZR_GPIO(GPIO_OUTPUT_ACTIVE);
 
 #undef ZR_GPIO
+
+/*
+ * Socket-related constants that may be macros
+ */
+#ifdef CONFIG_NET_SOCKETS
+const int ZR_AF_INET = AF_INET;
+const int ZR_AF_INET6 = AF_INET6;
+const int ZR_SOCK_STREAM = SOCK_STREAM;
+const int ZR_SOCK_DGRAM = SOCK_DGRAM;
+const int ZR_IPPROTO_TCP = IPPROTO_TCP;
+const int ZR_IPPROTO_UDP = IPPROTO_UDP;
+
+/*
+ * Zephyr uses zsock_ prefix for socket functions in some cases,
+ * but also provides standard names. Wrap them for consistency.
+ */
+static inline int zr_socket(int family, int type, int protocol) {
+	return zsock_socket(family, type, protocol);
+}
+
+static inline int zr_bind(int sock, const struct sockaddr *addr, socklen_t addrlen) {
+	return zsock_bind(sock, addr, addrlen);
+}
+
+static inline int zr_close(int sock) {
+	return zsock_close(sock);
+}
+#endif
 
 /*
  * Zephyr's irq_lock() and irq_unlock() are macros not inline functions, so we need some inlines to

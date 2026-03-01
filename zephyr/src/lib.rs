@@ -73,6 +73,7 @@ pub mod device;
 pub mod embassy;
 pub mod error;
 pub mod logging;
+pub mod net;
 pub mod object;
 #[cfg(CONFIG_RUST_ALLOC)]
 pub mod simpletls;
