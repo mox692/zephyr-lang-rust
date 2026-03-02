@@ -108,7 +108,7 @@ impl Socket {
                 let sockaddr_in = sockaddr_in {
                     sin_family: Domain::IPV4 as u16,
                     sin_port: htons(addr_v4.port()),
-                    sin_addr: htonl(u32::from_be_bytes(addr_v4.ip().octets())),
+                    sin_addr: u32::from_be_bytes(addr_v4.ip().octets()),
                     sin_zero: [0; 8],
                 };
                 unsafe {
@@ -193,6 +193,30 @@ impl Socket {
     pub fn as_raw_fd(&self) -> c_int {
         self.fd
     }
+
+    /// Creates a Socket from a raw file descriptor.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that:
+    /// - `fd` is a valid socket file descriptor
+    /// - The socket is not already owned by another Socket instance
+    /// - The socket will not be closed by external code while this Socket exists
+    ///
+    /// When this Socket is dropped, it will close the file descriptor.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use zephyr::net::Socket;
+    ///
+    /// // Assume we have a raw fd from C code
+    /// let raw_fd = 3;
+    /// let socket = unsafe { Socket::from_raw_fd(raw_fd) };
+    /// ```
+    pub unsafe fn from_raw_fd(fd: c_int) -> Self {
+        Socket { fd }
+    }
 }
 
 impl Drop for Socket {
@@ -217,4 +241,3 @@ pub fn htons(hostshort: u16) -> u16 {
 pub fn htonl(hostlong: u32) -> u32 {
     hostlong.to_be()
 }
-
