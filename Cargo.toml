@@ -1,0 +1,15 @@
+# Copyright (c) 2024 Linaro LTD
+# SPDX-License-Identifier: Apache-2.0
+
+[workspace]
+resolver = "2"
+members = [
+    "zephyr",
+    "zephyr-sys",
+    "zephyr-macros",
+    "zephyr-build",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
