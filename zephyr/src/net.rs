@@ -115,7 +115,7 @@ impl Socket {
                     let ret = raw::zr_bind(
                         self.fd,
                         &sockaddr_in as *const _ as *const _,
-                        core::mem::size_of::<sockaddr_in>() as raw::net_socklen_t,
+                        core::mem::size_of::<sockaddr_in>() as raw::socklen_t,
                     );
                     to_result_void(ret)
                 }
@@ -162,7 +162,7 @@ impl Socket {
             sin_addr: 0,
             sin_zero: [0; 8],
         };
-        let mut addrlen = core::mem::size_of::<sockaddr_in>() as raw::net_socklen_t;
+        let mut addrlen = core::mem::size_of::<sockaddr_in>() as raw::socklen_t;
 
         unsafe {
             let result = raw::zr_recvfrom(
